@@ -80,6 +80,15 @@ async def handle_message(ws, raw):
             print(f"[{get_timestamp()}] {username} saiu da sala '{room}' (usuários restantes: {len(rooms[room])})")
         else:
             await ws.send(json.dumps({"type": "error", "message": "não está em nenhuma sala"}))
+    
+    elif t == "list_users":
+        # cria lista de {username, room} de todos os clientes conectados
+        users_list = [
+            {"username": info.get("username") or "anon", "room": info.get("room")}
+            for info in clients.values()
+        ]
+        await ws.send(json.dumps({"type": "users_list", "users": users_list}))
+        print(f"[{get_timestamp()}] {username} solicitou lista de usuários online")
 
     elif t == "message":
         room = clients[ws]["room"]

@@ -13,6 +13,7 @@ def show_help():
     print("/leave               -> Sai da sala atual")
     print("/quit                -> Sai do cliente")
     print("/help                -> Mostra esta ajuda")
+    print("/listusers           -> Mostra os usuários online")
     print("Qualquer outro texto será enviado como mensagem para a sala atual.")
     print("==================================================================")
 
@@ -48,6 +49,15 @@ async def cli(uri):
                                 salas = data.get('rooms', [])
                                 print("Salas existentes:", ", ".join(salas) if salas else "Nenhuma")
                             # ignora todos os outros tipos
+                            elif t == 'users_list':
+                                users = data.get('users', [])
+                                if not users:
+                                    print("Nenhum usuário online.")
+                                else:
+                                    print("Usuários online:")
+                                    for u in users:
+                                        room = u['room'] if u['room'] else "Nenhuma sala"
+                                        print(f"- {u['username']} (Sala: {room})")
                         except ConnectionClosed:
                             running = False
                             break
@@ -79,6 +89,9 @@ async def cli(uri):
 
                             elif cmd == '/rooms':
                                 await ws.send(json.dumps({'type':'list_rooms'}))
+                            
+                            elif cmd == '/listusers':
+                                await ws.send(json.dumps({'type':'list_users'}))
 
                             elif cmd.startswith('/create '):
                                 parts = cmd.split(' ', 1)
