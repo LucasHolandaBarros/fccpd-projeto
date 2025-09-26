@@ -40,6 +40,7 @@
   <script>
   const ws = new WebSocket('ws://' + location.hostname + ':8765');
   let currentRoom = null;
+  let connected = false;
 
   function append(msg, cls) {
     const d = document.createElement('div');
@@ -50,16 +51,44 @@
     messages.scrollTop = messages.scrollHeight;
   }
 
+  // Texto de ajuda (adaptado da função Python)
+  const HELP_LINES = [
+    "=== Comandos disponíveis =========================================",
+    "/username NOME       -> Define seu nome de usuário",
+    "/rooms               -> Lista todas as salas existentes",
+    "/create NOME_DA_SALA -> Cria uma nova sala",
+    "/join NOME_DA_SALA   -> Entra em uma sala",
+    "/leave               -> Sai da sala atual",
+    "/quit                -> Sai do cliente (fecha a conexão no navegador)",
+    "/help                -> Mostra esta ajuda",
+    "/listusers           -> Mostra os usuários online",
+    "Qualquer outro texto será enviado como mensagem para a sala atual.",
+    "=================================================================="
+  ];
+
   ws.onopen = () => {
+    connected = true;
     append('Conectado ao servidor', 'system');
     refreshRooms();
-  }
+  };
+
+  ws.onclose = () => {
+    connected = false;
+    append('Conexão encerrada', 'system');
+    disableChat();
+  };
+
+  ws.onerror = (ev) => {
+    append('Erro na conexão WebSocket', 'system');
+  };
 
   const toggleDark = document.getElementById('toggleDarkMode');
+  
+  document.body.classList.add('dark-mode');
+
   if (toggleDark) {
     toggleDark.onclick = () => {
       document.body.classList.toggle('dark-mode');
-      // Muda o texto do botão
       toggleDark.textContent = document.body.classList.contains('dark-mode') ? 'Light Mode' : 'Dark Mode';
     }
   }
@@ -68,16 +97,20 @@
     const data = JSON.parse(ev.data);
     if (data.type === 'rooms_list') {
       const list = document.getElementById('roomList');
-      list.innerHTML = '';
-      data.rooms.forEach(r => {
-        const li = document.createElement('li');
-        const btn = document.createElement('button');
-        btn.textContent = 'Entrar';
-        btn.onclick = () => { ws.send(JSON.stringify({type:'join_room', room: r})); };
-        li.appendChild(document.createTextNode(r + ' '));
-        li.appendChild(btn);
-        list.appendChild(li);
-      });
+      if (list) {
+        list.innerHTML = '';
+        data.rooms.forEach(r => {
+          const li = document.createElement('li');
+          const btn = document.createElement('button');
+          btn.textContent = 'Entrar';
+          btn.onclick = () => { ws.send(JSON.stringify({type:'join_room', room: r})); };
+          li.appendChild(document.createTextNode(r + ' '));
+          li.appendChild(btn);
+          list.appendChild(li);
+        });
+      } else {
+        append('Rooms: ' + (data.rooms || []).join(', '), 'system');
+      }
     } else if (data.type === 'message') {
       append('['+data.room+'] '+data.from+': '+data.text);
     } else if (data.type === 'user_joined') {
@@ -86,7 +119,8 @@
       append(data.username + ' saiu da sala ' + data.room, 'system');
     } else if (data.type === 'joined') {
       currentRoom = data.room;
-      document.getElementById('roomTitle').textContent = 'Sala: ' + currentRoom;
+      const title = document.getElementById('roomTitle');
+      if (title) title.textContent = 'Sala: ' + currentRoom;
       document.getElementById('messages').innerHTML = '';
       append('Bem-vindo à sala ' + currentRoom, 'system');
     } else if (data.type === 'users_list') {
@@ -104,7 +138,8 @@
     } else if (data.type === 'left') {
       append('Você saiu da sala ' + data.room, 'system');
       currentRoom = null;
-      document.getElementById('roomTitle').textContent = 'Nenhuma sala';
+      const title = document.getElementById('roomTitle');
+      if (title) title.textContent = 'Nenhuma sala';
       document.getElementById('messages').innerHTML = '';
     } else if (data.type === 'room_created') {
       append('Sala criada: ' + data.room, 'system');
@@ -116,27 +151,134 @@
     } else {
       append('Srv: ' + JSON.stringify(data), 'system');
     }
-  }
+  };
 
-  function refreshRooms(){ ws.send(JSON.stringify({type:'list_rooms'})); }
+  function refreshRooms(){ 
+    if (!connected) return append('Não conectado ao servidor', 'system');
+    ws.send(JSON.stringify({type:'list_rooms'})); 
+  }
 
   document.getElementById('createRoom').onclick = () => {
     const r = document.getElementById('newRoom').value.trim();
     if (!r) return alert('nome vazio');
     ws.send(JSON.stringify({type:'create_room', room: r}));
-  }
+  };
 
   document.getElementById('listUsers').onclick = () => {
+    if (!connected) return append('Não conectado ao servidor', 'system');
     ws.send(JSON.stringify({type: 'list_users'}));
+  };
+
+  // Reutilizável: desabilita input e botões após /quit ou desconexão
+  function disableChat() {
+    const inputEl = document.getElementById('msgInput');
+    const sendBtn = document.getElementById('send');
+    const leaveBtn = document.getElementById('leave');
+    if (inputEl) { inputEl.disabled = true; inputEl.placeholder = 'Desconectado'; }
+    if (sendBtn) sendBtn.disabled = true;
+    if (leaveBtn) leaveBtn.disabled = true;
+    const createBtn = document.getElementById('createRoom');
+    if (createBtn) createBtn.disabled = true;
+    const setUser = document.getElementById('setUsername');
+    if (setUser) setUser.disabled = true;
+    const refreshBtn = document.getElementById('refreshRooms');
+    if (refreshBtn) refreshBtn.disabled = true;
+    const listUsersBtn = document.getElementById('listUsers');
+    if (listUsersBtn) listUsersBtn.disabled = true;
   }
 
-  // Função reutilizável para enviar mensagem
+  // Processa comandos iniciados por '/'
+  function handleCommand(command, arg) {
+    if (!connected && command !== '/quit') {
+      append('Comando não executado: não conectado ao servidor.', 'system');
+      return;
+    }
+
+    switch (command) {
+      case '/help':
+        HELP_LINES.forEach(line => append(line, 'system'));
+        break;
+
+      case '/rooms':
+        ws.send(JSON.stringify({type:'list_rooms'}));
+        break;
+
+      case '/create':
+        if (!arg) {
+          append('Uso: /create NOME_DA_SALA', 'system');
+        } else {
+          ws.send(JSON.stringify({type:'create_room', room: arg}));
+        }
+        break;
+
+      case '/join':
+        if (!arg) {
+          append('Uso: /join NOME_DA_SALA', 'system');
+        } else {
+          ws.send(JSON.stringify({type:'join_room', room: arg}));
+        }
+        break;
+
+      case '/leave':
+        ws.send(JSON.stringify({type:'leave_room'}));
+        break;
+
+      case '/username':
+        if (!arg) {
+          append('Uso: /username NOME', 'system');
+        } else {
+          ws.send(JSON.stringify({type:'set_username', username: arg}));
+        }
+        break;
+
+      case '/listusers':
+        ws.send(JSON.stringify({type:'list_users'}));
+        break;
+
+      case '/quit':
+        append('Fechando conexão...', 'system');
+        try { ws.close(); } catch(e) {}
+        disableChat();
+        break;
+
+      default:
+        append('Comando desconhecido: ' + command + '. Use /help para ver os comandos.', 'system');
+        break;
+    }
+  }
+
+  // Função reutilizável para enviar mensagem ou executar comandos locais
   function sendMessage() {
     const inputEl = document.getElementById('msgInput');
     if (!inputEl) return;
-    const t = inputEl.value.trim();
-    if (!t) return; // nada para enviar
-    ws.send(JSON.stringify({type:'message', text: t}));
+    const raw = inputEl.value;
+    if (raw === null) return;
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+
+    // Detecta comandos que começam com '/'
+    if (trimmed.startsWith('/')) {
+      // separa comando e argumento: ex "/join Sala 1" -> command="/join", arg="Sala 1"
+      const spaceIdx = trimmed.indexOf(' ');
+      let command = trimmed;
+      let arg = '';
+      if (spaceIdx !== -1) {
+        command = trimmed.substring(0, spaceIdx);
+        arg = trimmed.substring(spaceIdx + 1).trim();
+      }
+      handleCommand(command.toLowerCase(), arg);
+      inputEl.value = '';
+      inputEl.focus();
+      return;
+    }
+
+    // Mensagem normal -> enviar ao servidor
+    if (!connected) {
+      append('Não conectado: mensagem não enviada.', 'system');
+      return;
+    }
+
+    ws.send(JSON.stringify({type:'message', text: trimmed}));
     inputEl.value = '';
     inputEl.focus();
   }
@@ -156,14 +298,20 @@
     });
   }
 
-  document.getElementById('leave').onclick = () => { ws.send(JSON.stringify({type:'leave_room'})); }
+  document.getElementById('leave').onclick = () => { 
+    if (connected) ws.send(JSON.stringify({type:'leave_room'}));
+  };
+
   document.getElementById('refreshRooms').onclick = refreshRooms;
   document.getElementById('setUsername').onclick = () => {
     const u = document.getElementById('username').value.trim();
     if (!u) return;
+    if (!connected) return append('Não conectado ao servidor', 'system');
     ws.send(JSON.stringify({type:'set_username', username: u}));
-  }
+  };
 </script>
+
+
 
 </body>
 </html>
