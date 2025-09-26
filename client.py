@@ -1,6 +1,7 @@
-# client.py
-import asyncio
+# client_threaded_correct.py
 import json
+import threading
+import asyncio
 import websockets
 from websockets.exceptions import ConnectionClosed
 
@@ -17,134 +18,131 @@ def show_help():
     print("Qualquer outro texto será enviado como mensagem para a sala atual.")
     print("==================================================================")
 
-async def cli(uri):
-    try:
-        async with websockets.connect(
-            uri,
-            ping_interval=10,
-            ping_timeout=5,
-            close_timeout=5
-        ) as ws:
+class ChatClient:
+    def __init__(self, uri):
+        self.uri = uri
+        self.running = True
+        self.ws = None
+        self.loop = asyncio.new_event_loop()
+
+    def start(self):
+        # Thread principal para conectar ao servidor e manter o loop ativo
+        threading.Thread(target=self.loop.run_until_complete, args=(self.connect(),), daemon=True).start()
+        # Thread para ler input do usuário
+        threading.Thread(target=self.sender_thread, daemon=True).start()
+
+    async def connect(self):
+        async with websockets.connect(self.uri) as ws:
+            self.ws = ws
             print("Conectado ao servidor.")
             show_help()
+            # Thread para receber mensagens
+            threading.Thread(target=self.receiver_thread, daemon=True).start()
+            # Mantém o loop ativo
+            while self.running:
+                await asyncio.sleep(0.1)
 
-            running = True
-
-            async def receiver():
-                nonlocal running
+    def receiver_thread(self):
+        while self.running:
+            try:
+                # Usa run_coroutine_threadsafe em vez de run_until_complete
+                future = asyncio.run_coroutine_threadsafe(self.ws.recv(), self.loop)
+                message = future.result()  # bloqueia até receber
                 try:
-                    while running:
-                        try:
-                            message = await ws.recv()
-                            try:
-                                data = json.loads(message)
-                            except Exception:
-                                continue
-
-                            t = data.get('type')
-                            if t == 'message':
-                                # Mensagens de outros clientes
-                                print(f"[{data.get('room')}] {data.get('from')}: {data.get('text')}")
-                            elif t == 'rooms_list':
-                                salas = data.get('rooms', [])
-                                print("Salas existentes:", ", ".join(salas) if salas else "Nenhuma")
-                            # ignora todos os outros tipos
-                            elif t == 'users_list':
-                                users = data.get('users', [])
-                                if not users:
-                                    print("Nenhum usuário online.")
-                                else:
-                                    print("Usuários online:")
-                                    for u in users:
-                                        room = u['room'] if u['room'] else "Nenhuma sala"
-                                        print(f"- {u['username']} (Sala: {room})")
-                        except ConnectionClosed:
-                            running = False
-                            break
-                        except Exception:
-                            running = False
-                            break
+                    data = json.loads(message)
                 except Exception:
-                    running = False
+                    continue
 
-            async def sender():
-                nonlocal running
-                loop = asyncio.get_event_loop()
-                try:
-                    while running:
-                        try:
-                            # Input **não-bloqueante confiável**
-                            cmd = await loop.run_in_executor(None, input, '> ')
-                            cmd = cmd.strip()
-                            if not cmd:
-                                continue
+                t = data.get('type')
+                if t == 'message':
+                    print(f"[{data.get('room')}] {data.get('from')}: {data.get('text')}")
+                elif t == 'rooms_list':
+                    salas = data.get('rooms', [])
+                    print("Salas existentes:", ", ".join(salas) if salas else "Nenhuma")
+                elif t == 'users_list':
+                    users = data.get('users', [])
+                    if not users:
+                        print("Nenhum usuário online.")
+                    else:
+                        print("Usuários online:")
+                        for u in users:
+                            room = u['room'] if u['room'] else "Nenhuma sala"
+                            print(f"- {u['username']} (Sala: {room})")
+            except ConnectionClosed:
+                print("Conexão fechada pelo servidor.")
+                self.running = False
+                break
+            except Exception as e:
+                print("Erro no receiver:", e)
+                self.running = False
+                break
 
-                            if cmd.startswith('/username '):
-                                parts = cmd.split(' ', 1)
-                                if len(parts) < 2 or not parts[1].strip():
-                                    print("Uso: /username NOME")
-                                    continue
-                                uname = parts[1].strip()
-                                await ws.send(json.dumps({'type':'set_username','username':uname}))
+    def sender_thread(self):
+        while self.running:
+            try:
+                cmd = input("> ").strip()
+                if not cmd:
+                    continue
 
-                            elif cmd == '/rooms':
-                                await ws.send(json.dumps({'type':'list_rooms'}))
-                            
-                            elif cmd == '/listusers':
-                                await ws.send(json.dumps({'type':'list_users'}))
-
-                            elif cmd.startswith('/create '):
-                                parts = cmd.split(' ', 1)
-                                if len(parts) < 2 or not parts[1].strip():
-                                    print("Uso: /create NOME_DA_SALA")
-                                    continue
-                                room = parts[1].strip()
-                                await ws.send(json.dumps({'type':'create_room','room':room}))
-
-                            elif cmd.startswith('/join '):
-                                parts = cmd.split(' ', 1)
-                                if len(parts) < 2 or not parts[1].strip():
-                                    print("Uso: /join NOME_DA_SALA")
-                                    continue
-                                room = parts[1].strip()
-                                await ws.send(json.dumps({'type':'join_room','room':room}))
-
-                            elif cmd == '/leave':
-                                await ws.send(json.dumps({'type':'leave_room'}))
-
-                            elif cmd == '/quit':
-                                print('Saindo...')
-                                running = False
-                                await ws.close()
-                                break
-
-                            elif cmd == '/help':
-                                show_help()
-
-                            else:
-                                await ws.send(json.dumps({'type':'message','text':cmd}))
-
-                        except ConnectionClosed:
-                            print("\nNão é possível enviar mensagens - conexão fechada")
-                            running = False
-                            break
-                        except Exception as e:
-                            print('Erro no sender:', e)
-                            running = False
-                            break
-                except Exception as e:
-                    print('Erro fatal no sender:', e)
-                    running = False
-
-            # Executa receiver e sender em paralelo
-            await asyncio.gather(
-                receiver(),
-                sender(),
-                return_exceptions=True
-            )
-
-    except Exception as e:
-        print("Erro ao conectar ou manter a conexão:", e)
+                if cmd.startswith('/username '):
+                    uname = cmd.split(' ', 1)[1].strip()
+                    asyncio.run_coroutine_threadsafe(
+                        self.ws.send(json.dumps({'type':'set_username','username':uname})),
+                        self.loop
+                    )
+                elif cmd == '/rooms':
+                    asyncio.run_coroutine_threadsafe(
+                        self.ws.send(json.dumps({'type':'list_rooms'})),
+                        self.loop
+                    )
+                elif cmd == '/listusers':
+                    asyncio.run_coroutine_threadsafe(
+                        self.ws.send(json.dumps({'type':'list_users'})),
+                        self.loop
+                    )
+                elif cmd.startswith('/create '):
+                    room = cmd.split(' ', 1)[1].strip()
+                    asyncio.run_coroutine_threadsafe(
+                        self.ws.send(json.dumps({'type':'create_room','room':room})),
+                        self.loop
+                    )
+                elif cmd.startswith('/join '):
+                    room = cmd.split(' ', 1)[1].strip()
+                    asyncio.run_coroutine_threadsafe(
+                        self.ws.send(json.dumps({'type':'join_room','room':room})),
+                        self.loop
+                    )
+                elif cmd == '/leave':
+                    asyncio.run_coroutine_threadsafe(
+                        self.ws.send(json.dumps({'type':'leave_room'})),
+                        self.loop
+                    )
+                elif cmd == '/help':
+                    show_help()
+                elif cmd == '/quit':
+                    print("Saindo...")
+                    self.running = False
+                    asyncio.run_coroutine_threadsafe(self.ws.close(), self.loop)
+                    break
+                else:
+                    # mensagem normal
+                    asyncio.run_coroutine_threadsafe(
+                        self.ws.send(json.dumps({'type':'message','text':cmd})),
+                        self.loop
+                    )
+            except Exception as e:
+                print("Erro no sender:", e)
+                self.running = False
+                break
 
 if __name__ == '__main__':
-    asyncio.run(cli('ws://localhost:8765'))
+    client = ChatClient('ws://localhost:8765')
+    client.start()
+
+    # Mantém o main thread vivo
+    try:
+        while client.running:
+            pass
+    except KeyboardInterrupt:
+        client.running = False
+        print("\nEncerrando cliente...")
