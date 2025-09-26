@@ -6,11 +6,15 @@
        
       python server.py
       
-  <h2> 2. Divida o terminal e rode o client </h2>
+  <h2> 2. Divida o terminal e rode esse comando para criar um servidor simples na porta desejada (Nesse caso a 8000) </h2>
        
       python -m http.server 8000
-      
-  <h2> 3. Abra o seu navegador e entre no servidor local </h2>
+
+  <h2> 3. Divida o terminal e rode o client </h2>
+
+     python client.py
+  
+  <h2> 4. Abra o seu navegador e entre no servidor local </h2>
        
       http://localhost:8000/
 
