@@ -31,121 +31,139 @@
       <h3 id="roomTitle">Nenhuma sala</h3>
       <div id="messages"></div>
       <div class="message-input">
-        <input id="msgInput" placeholder="Digite sua mensagem..." />
-        <button id="send">Enviar</button>
-        <button id="leave">Sair da sala</button>
-      </div>
+      <input id="msgInput" placeholder="Digite sua mensagem..." />
+      <button id="send">Enviar</button>
+      <button id="leave">Sair da sala</button>
     </div>
-  </div>
+    
 
   <script>
-    const ws = new WebSocket('ws://' + location.hostname + ':8765');
-    let currentRoom = null;
+  const ws = new WebSocket('ws://' + location.hostname + ':8765');
+  let currentRoom = null;
 
-    function append(msg, cls) {
-      const d = document.createElement('div');
-      if (cls) d.className = cls;
-      d.textContent = msg;
-      document.getElementById('messages').appendChild(d);
-      document.getElementById('messages').scrollTop = document.getElementById('messages').scrollHeight;
-    }
+  function append(msg, cls) {
+    const d = document.createElement('div');
+    if (cls) d.className = cls;
+    d.textContent = msg;
+    const messages = document.getElementById('messages');
+    messages.appendChild(d);
+    messages.scrollTop = messages.scrollHeight;
+  }
 
-    ws.onopen = () => {
-      append('Conectado ao servidor', 'system');
-      refreshRooms();
-    }
+  ws.onopen = () => {
+    append('Conectado ao servidor', 'system');
+    refreshRooms();
+  }
 
-    const toggleDark = document.getElementById('toggleDarkMode');
+  const toggleDark = document.getElementById('toggleDarkMode');
+  if (toggleDark) {
     toggleDark.onclick = () => {
       document.body.classList.toggle('dark-mode');
       // Muda o texto do botão
-      if(document.body.classList.contains('dark-mode')){
-        toggleDark.textContent = 'Light Mode';
-      } else {
-        toggleDark.textContent = 'Dark Mode';
-      }
+      toggleDark.textContent = document.body.classList.contains('dark-mode') ? 'Light Mode' : 'Dark Mode';
     }
+  }
 
-    ws.onmessage = (ev) => {
-      const data = JSON.parse(ev.data);
-      if (data.type === 'rooms_list') {
-        const list = document.getElementById('roomList');
-        list.innerHTML = '';
-        data.rooms.forEach(r => {
-          const li = document.createElement('li');
-          const btn = document.createElement('button');
-          btn.textContent = 'Entrar';
-          btn.onclick = () => { ws.send(JSON.stringify({type:'join_room', room: r})); };
-          li.appendChild(document.createTextNode(r + ' '));
-          li.appendChild(btn);
-          list.appendChild(li);
+  ws.onmessage = (ev) => {
+    const data = JSON.parse(ev.data);
+    if (data.type === 'rooms_list') {
+      const list = document.getElementById('roomList');
+      list.innerHTML = '';
+      data.rooms.forEach(r => {
+        const li = document.createElement('li');
+        const btn = document.createElement('button');
+        btn.textContent = 'Entrar';
+        btn.onclick = () => { ws.send(JSON.stringify({type:'join_room', room: r})); };
+        li.appendChild(document.createTextNode(r + ' '));
+        li.appendChild(btn);
+        list.appendChild(li);
+      });
+    } else if (data.type === 'message') {
+      append('['+data.room+'] '+data.from+': '+data.text);
+    } else if (data.type === 'user_joined') {
+      append(data.username + ' entrou na sala ' + data.room, 'system');
+    } else if (data.type === 'user_left') {
+      append(data.username + ' saiu da sala ' + data.room, 'system');
+    } else if (data.type === 'joined') {
+      currentRoom = data.room;
+      document.getElementById('roomTitle').textContent = 'Sala: ' + currentRoom;
+      document.getElementById('messages').innerHTML = '';
+      append('Bem-vindo à sala ' + currentRoom, 'system');
+    } else if (data.type === 'users_list') {
+      const users = data.users || [];
+      if (!users.length) {
+        append('Nenhum usuário online.', 'system');
+      } else {
+        append('=== Usuários online ===', 'system');
+        users.forEach(u => {
+          const room = u.room || "Nenhuma sala";
+          append(`- ${u.username} (Sala: ${room})`, 'system');
         });
-      } else if (data.type === 'message') {
-        append('['+data.room+'] '+data.from+': '+data.text);
-      } else if (data.type === 'user_joined') {
-        append(data.username + ' entrou na sala ' + data.room, 'system');
-      } else if (data.type === 'user_left') {
-        append(data.username + ' saiu da sala ' + data.room, 'system');
-      } else if (data.type === 'joined') {
-        currentRoom = data.room;
-        document.getElementById('roomTitle').textContent = 'Sala: ' + currentRoom;
-        document.getElementById('messages').innerHTML = '';
-        append('Bem-vindo à sala ' + currentRoom, 'system');
-      } else if (data.type === 'users_list') {
-        const users = data.users || [];
-        if (!users.length) {
-          append('Nenhum usuário online.', 'system');
-        } else {
-          append('=== Usuários online ===', 'system');
-          users.forEach(u => {
-            const room = u.room || "Nenhuma sala";
-            append(`- ${u.username} (Sala: ${room})`, 'system');
-          });
-          append('====================', 'system');
-        }
-      } else if (data.type === 'left') {
-        append('Você saiu da sala ' + data.room, 'system');
-        currentRoom = null;
-        document.getElementById('roomTitle').textContent = 'Nenhuma sala';
-        document.getElementById('messages').innerHTML = '';
-      } else if (data.type === 'room_created') {
-        append('Sala criada: ' + data.room, 'system');
-        refreshRooms();
-      } else if (data.type === 'username_set') {
-        append('Username definido: ' + data.username, 'system');
-      } else if (data.type === 'error') {
-        append('Erro: ' + data.message, 'system');
-      } else {
-        append('Srv: ' + JSON.stringify(data), 'system');
+        append('====================', 'system');
       }
+    } else if (data.type === 'left') {
+      append('Você saiu da sala ' + data.room, 'system');
+      currentRoom = null;
+      document.getElementById('roomTitle').textContent = 'Nenhuma sala';
+      document.getElementById('messages').innerHTML = '';
+    } else if (data.type === 'room_created') {
+      append('Sala criada: ' + data.room, 'system');
+      refreshRooms();
+    } else if (data.type === 'username_set') {
+      append('Username definido: ' + data.username, 'system');
+    } else if (data.type === 'error') {
+      append('Erro: ' + data.message, 'system');
+    } else {
+      append('Srv: ' + JSON.stringify(data), 'system');
     }
+  }
 
-    function refreshRooms(){ ws.send(JSON.stringify({type:'list_rooms'})); }
+  function refreshRooms(){ ws.send(JSON.stringify({type:'list_rooms'})); }
 
-    document.getElementById('createRoom').onclick = () => {
-      const r = document.getElementById('newRoom').value.trim();
-      if (!r) return alert('nome vazio');
-      ws.send(JSON.stringify({type:'create_room', room: r}));
-    }
+  document.getElementById('createRoom').onclick = () => {
+    const r = document.getElementById('newRoom').value.trim();
+    if (!r) return alert('nome vazio');
+    ws.send(JSON.stringify({type:'create_room', room: r}));
+  }
 
-    document.getElementById('listUsers').onclick = () => {
-      ws.send(JSON.stringify({type: 'list_users'}));
-    }
+  document.getElementById('listUsers').onclick = () => {
+    ws.send(JSON.stringify({type: 'list_users'}));
+  }
 
-    document.getElementById('send').onclick = () => {
-      const t = document.getElementById('msgInput').value;
-      if (!t) return;
-      ws.send(JSON.stringify({type:'message', text: t}));
-      document.getElementById('msgInput').value = '';
-    }
+  // Função reutilizável para enviar mensagem
+  function sendMessage() {
+    const inputEl = document.getElementById('msgInput');
+    if (!inputEl) return;
+    const t = inputEl.value.trim();
+    if (!t) return; // nada para enviar
+    ws.send(JSON.stringify({type:'message', text: t}));
+    inputEl.value = '';
+    inputEl.focus();
+  }
 
-    document.getElementById('leave').onclick = () => { ws.send(JSON.stringify({type:'leave_room'})); }
-    document.getElementById('refreshRooms').onclick = refreshRooms;
-    document.getElementById('setUsername').onclick = () => {
-      const u = document.getElementById('username').value.trim();
-      if (!u) return;
-      ws.send(JSON.stringify({type:'set_username', username: u}));
-    }
-  </script>
+  // Envia ao clicar no botão
+  const sendBtn = document.getElementById('send');
+  if (sendBtn) sendBtn.addEventListener('click', sendMessage);
+
+  // Envia ao pressionar Enter no input (Shift+Enter permite nova linha)
+  const msgInput = document.getElementById('msgInput');
+  if (msgInput) {
+    msgInput.addEventListener('keydown', function(event) {
+      if (event.key === 'Enter' && !event.shiftKey) {
+        event.preventDefault();
+        sendMessage();
+      }
+    });
+  }
+
+  document.getElementById('leave').onclick = () => { ws.send(JSON.stringify({type:'leave_room'})); }
+  document.getElementById('refreshRooms').onclick = refreshRooms;
+  document.getElementById('setUsername').onclick = () => {
+    const u = document.getElementById('username').value.trim();
+    if (!u) return;
+    ws.send(JSON.stringify({type:'set_username', username: u}));
+  }
+</script>
+
 </body>
 </html>
