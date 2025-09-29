@@ -1,4 +1,3 @@
-# client_threaded_correct.py
 import json
 import threading
 import asyncio
@@ -26,9 +25,9 @@ class ChatClient:
         self.loop = asyncio.new_event_loop()
 
     def start(self):
-        # Thread principal para conectar ao servidor e manter o loop ativo
+        
         threading.Thread(target=self.loop.run_until_complete, args=(self.connect(),), daemon=True).start()
-        # Thread para ler input do usuário
+       
         threading.Thread(target=self.sender_thread, daemon=True).start()
 
     async def connect(self):
@@ -36,18 +35,18 @@ class ChatClient:
             self.ws = ws
             print("Conectado ao servidor.")
             show_help()
-            # Thread para receber mensagens
+            
             threading.Thread(target=self.receiver_thread, daemon=True).start()
-            # Mantém o loop ativo
+            
             while self.running:
                 await asyncio.sleep(0.1)
 
     def receiver_thread(self):
         while self.running:
             try:
-                # Usa run_coroutine_threadsafe em vez de run_until_complete
+                
                 future = asyncio.run_coroutine_threadsafe(self.ws.recv(), self.loop)
-                message = future.result()  # bloqueia até receber
+                message = future.result()  
                 try:
                     data = json.loads(message)
                 except Exception:
@@ -125,7 +124,7 @@ class ChatClient:
                     asyncio.run_coroutine_threadsafe(self.ws.close(), self.loop)
                     break
                 else:
-                    # mensagem normal
+                    
                     asyncio.run_coroutine_threadsafe(
                         self.ws.send(json.dumps({'type':'message','text':cmd})),
                         self.loop
@@ -139,7 +138,7 @@ if __name__ == '__main__':
     client = ChatClient('ws://localhost:8765')
     client.start()
 
-    # Mantém o main thread vivo
+
     try:
         while client.running:
             pass

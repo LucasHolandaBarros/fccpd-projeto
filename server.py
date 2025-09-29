@@ -1,12 +1,11 @@
-# server.py
 import asyncio
 import json
 import websockets
 from websockets.exceptions import ConnectionClosedOK, ConnectionClosedError
 from datetime import datetime
 
-rooms = {}   # room_name -> set of websockets
-clients = {} # websocket -> {"username": str, "room": str or None}
+rooms = {}   
+clients = {} 
 
 def get_timestamp():
     return datetime.now().strftime("%H:%M")
@@ -82,7 +81,7 @@ async def handle_message(ws, raw):
             await ws.send(json.dumps({"type": "error", "message": "não está em nenhuma sala"}))
     
     elif t == "list_users":
-        # cria lista de {username, room} de todos os clientes conectados
+        
         users_list = [
             {"username": info.get("username") or "anon", "room": info.get("room")}
             for info in clients.values()
@@ -143,7 +142,7 @@ async def main():
         close_timeout=10
     ):
         print(f"[{get_timestamp()}] Servidor WebSocket rodando em ws://localhost:8765")
-        await asyncio.Future()  # mantém o servidor rodando
+        await asyncio.Future()  
 
 if __name__ == '__main__':
     asyncio.run(main())
